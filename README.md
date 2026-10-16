@@ -5,14 +5,15 @@ clients that talk to it.
 
 ## Aim
 
-Run a restaurant's day-to-day operations end to end — take orders on the floor,
-route them to the kitchen, track stock and staff, report revenue — and let a
-manager stay in control of all of it without being on site.
+Run a restaurant's day-to-day operations end to end — take orders, whether from
+a waiter on the floor or a guest at their own table, route them to the kitchen,
+track stock and staff, report revenue — and let a manager stay in control of all
+of it without being on site.
 
 That second half is the part that shapes the architecture. A manager who is
 driving or in a meeting cannot read a dashboard, so oversight is delivered as
 actionable push notifications and a chat assistant rather than as another admin
-screen. See [`preconception.md`](preconception.md) for where this comes from.
+screen. See [`docs/preconception.md`](docs/preconception.md) for where this comes from.
 
 ## Status
 
@@ -33,6 +34,7 @@ against. The domain model and service boundaries are still open — see
 | Migrations | golang-migrate, per service | ✅ `make migrate-*` |
 | Admin panel | React PWA, mobile-first, Tailwind CSS | ❌ `web/` is empty |
 | POS app | Flutter, one app, role-switched views | ❌ not started |
+| Customer ordering | Tablet at the table, framework undecided | ❌ not started |
 | AI assistant | Python NLP over WhatsApp / Telegram / Slack | ❌ not started |
 | Push | Firebase Cloud Messaging, actionable notifications | ❌ not started |
 | Auth | JWT, claims driving RBAC | ❌ not started |
@@ -40,7 +42,7 @@ against. The domain model and service boundaries are still open — see
 | Logging | stdlib `log/slog`, structured, context-carried | ✅ `pkg/logger` |
 
 Only the Go foundation and the local stack are real today. Everything marked ❌
-is intent recorded in `preconception.md`, not code.
+is intent recorded in [`docs/preconception.md`](docs/preconception.md), not code.
 
 ## Layout
 
@@ -60,9 +62,12 @@ pkg/                  Shared Go libraries, one module
   redisx/             Redis client and per-service key namespaces
   reqid/              Request-ID propagation across HTTP and gRPC
 services/             One directory per microservice (empty — next step)
-web/                  Frontend (empty — React PWA per the preconception)
+web/                  Browser clients: admin panel, customer ordering (empty)
 deploy/local/         Docker Compose stack: Postgres, Redis
-preconception.md      Early project thinking, and what it leaves undecided
+docs/
+  requirements/       What the system must do, for whom, and how well
+  architecture/       Design overview and the decision record (ADRs)
+  preconception.md    Early project thinking, and what it leaves undecided
 ```
 
 Go modules are tied together by `go.work`, which is committed. `pkg/` and
@@ -171,46 +176,75 @@ No message broker runs locally — see [Questionable points](#questionable-point
 | `no required module provides package .../services/<name>` | the new service module is not in the workspace: `go work use ./services/<name>` |
 | A container you removed from compose is still running | it is an orphan — `docker compose ... down --remove-orphans` |
 
-## Architecture decisions
+## Frontend
 
-**Transport.** Three paths, each for a different job:
+Four clients, none built yet. They are listed together because the differences
+between them are the interesting part.
 
-- **REST** at the gateway, the only thing the clients talk to.
-- **gRPC** between services, for anything a caller needs an answer to.
-  Contracts live in `api/proto`, generated with `make proto`.
-- **Events** for anything that must not be lost and must not block the caller —
-  an order paid, a bill voided, a kitchen ticket running late. **Not built
-  yet:** the broker is undecided, so nothing here commits to one.
+| Client | Who uses it | Where | Tech |
+| --- | --- | --- | --- |
+| **Admin panel** | Manager / admin | Desktop and phone browser | React PWA, mobile-first, Tailwind |
+| **POS app** | Waiter, manager | Floor tablet, manager's phone | Flutter, one app, view chosen by JWT claims |
+| **Customer self-ordering** | Dine-in guests | Tablet at the table | Undecided |
+| **Chat assistant** | Manager | WhatsApp / Telegram / Slack | Python NLP service, no UI of its own |
 
-Errors keep their meaning across the two that exist: a service returns an
-`errs.Error`, and `httpx.Fail`, `grpcx.Status` and `grpcx.FromStatus` translate
-it in both directions. Nothing below the transport layer imports `net/http` or
-`grpc`.
+Details and constraints: [`web/README.md`](web/README.md) for the browser
+clients, [`docs/requirements/actors.md`](docs/requirements/actors.md) for who
+each one serves.
 
-**Data.** One Postgres instance with a schema per service, plus one shared
-Redis. A service reads and writes only its own schema; if it needs another
-service's data, it asks that service. The DSN pins `search_path` to the
-service's schema so a stray unqualified query fails rather than reaching across
-the boundary.
+**One split matters more than the rest.** Three of these are used by
+authenticated employees. The customer tablet is not: it sits in the dining room
+all day, handled by the public, with no person behind the request. So it does
+not get the staff API with a guest role bolted on — it needs its own narrow API
+scoped to a single table's order, and its surface should be treated as
+internet-facing even though the device never leaves the building. See
+[`NFR-016`](docs/requirements/non-functional.md).
 
-**Migrations.** Each service owns `services/<name>/migrations`, applied with
-`make migrate-up SERVICE=<name>`. Every service's first migration creates its
-own schema, so no shared bootstrap file has to be edited to add one.
+Everything client-side goes through the gateway's REST API, returns the single
+`httpx.ErrorBody` error shape, and handles money as integer minor units with an
+ISO 4217 code — never a float.
 
-**Configuration.** Environment only, no config files: a service embeds
-`config.Base` and adds the dependencies it uses, and `config.Load` fails at
-startup when something required is missing. `.env.example` lists every variable
-with its local value.
+## Requirements
 
-**Observability.** Every request carries an `x-request-id`, generated at the
-edge, propagated through gRPC metadata and onto published events, and attached
-to every log line. One client call is traceable through every service that
-touched it.
+What the system has to do lives in
+[`docs/requirements/`](docs/requirements/) — [actors](docs/requirements/actors.md),
+[functional](docs/requirements/functional.md) (`FR-NNN`) and
+[non-functional](docs/requirements/non-functional.md) (`NFR-NNN`).
+
+Every requirement carries a status, because most of them are not settled:
+**Captured** is evidenced in a source, **Inferred** follows from something
+captured but nobody said it, **Open** is known to be needed and unspecified.
+Treat `Inferred` as a question, not a spec.
+
+## Architecture
+
+The design and the reasoning behind it live in
+[`docs/architecture/`](docs/architecture/):
+
+- [**Overview**](docs/architecture/overview.md) — how the system fits together
+  now: transports, data ownership, errors, cross-cutting concerns. Kept current.
+- [**Decision record**](docs/architecture/decisions/) — why it is that way, one
+  append-only file per decision, including what was rejected.
+
+| # | Decision |
+| --- | --- |
+| [0001](docs/architecture/decisions/0001-monorepo-multi-module.md) | Monorepo with one Go module per deployable |
+| [0002](docs/architecture/decisions/0002-postgres-schema-per-service.md) | One Postgres instance, one schema per service |
+| [0003](docs/architecture/decisions/0003-transport-split.md) | REST at the edge, gRPC between services, events for the rest |
+| [0004](docs/architecture/decisions/0004-defer-message-broker-choice.md) | Defer the Kafka/NATS choice and ship no broker |
+| [0005](docs/architecture/decisions/0005-shared-error-vocabulary.md) | One error vocabulary, translated at each boundary |
+
+The short version: clients speak REST to a gateway and nothing else; services
+speak gRPC to each other with protobuf contracts in `api/proto`; each service
+owns one Postgres schema and asks its neighbours rather than reading their
+tables; one error vocabulary in `pkg/errs` is translated at each transport
+boundary so a failure keeps its meaning across a hop; and every request carries
+an `x-request-id` through all of it.
 
 ## Questionable points
 
 Things that are genuinely undecided, not just unbuilt. The full list, with
-context, is in [`preconception.md`](preconception.md#open-questions).
+context, is in [`docs/preconception.md`](docs/preconception.md#open-questions).
 
 **Blocking the first service**
 
@@ -231,6 +265,14 @@ context, is in [`preconception.md`](preconception.md#open-questions).
 
 **Design questions with real consequences**
 
+- **Does a customer's order reach the kitchen unreviewed?** Guests order from a
+  tablet at the table, and whether a waiter confirms first
+  ([`FR-105`](docs/requirements/functional.md#customer-self-ordering)) decides
+  what is being built: with confirmation the tablet is a faster notepad; without
+  it, a member of the public puts work into the kitchen directly, which needs
+  rate limiting and a sanity check on quantities. The same client also makes the
+  system's first public surface, so the API it uses has to be scoped to one
+  table rather than being the staff API with a guest role.
 - **Void approval semantics.** A cashier's over-threshold void waits on a
   manager tapping Approve on a lock screen. Is the void blocking meanwhile?
   Auto-denied after a timeout? Left pending indefinitely? Each answer implies a
