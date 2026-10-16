@@ -21,13 +21,26 @@ profile.cov
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-# Go workspace file
-go.work
+# Go workspace file: go.work is committed so every clone sees the same module
+# set; go.work.sum is a local artifact.
 go.work.sum
 
 # env file
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+
+# Generated protobuf Go code: regenerate with `make proto`
+api/gen/
+
+# Frontend
+node_modules/
+web/dist/
+web/build/
+.pnpm-store/
+
+# Local tooling
+bin/
+tmp/

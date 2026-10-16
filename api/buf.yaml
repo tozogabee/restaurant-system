@@ -1,0 +1,13 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # Services own their own packages; a single PACKAGE_DIRECTORY_MATCH rule
+    # across the monorepo would force a flat layout.
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use:
+    - FILE

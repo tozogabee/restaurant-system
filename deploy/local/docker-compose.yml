@@ -1,0 +1,58 @@
+# Local development stack: the backing services every microservice needs.
+# The services themselves are not here yet — run them from your IDE or with
+# `make run-<service>` against these ports.
+#
+# No message broker here on purpose: Kafka vs NATS is undecided, so nothing is
+# running that a service could quietly start depending on.
+#
+#   make up     start everything
+#   make down   stop it
+#   make reset  stop it and delete the volumes
+name: restaurant-system
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: restaurant-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: restaurant
+      POSTGRES_PASSWORD: restaurant
+      POSTGRES_DB: restaurant
+      # Fail fast on a bad password instead of trusting the local network.
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - "5432:5432"
+    volumes:
+      # Postgres 18+ images want the whole /var/lib/postgresql mounted, not
+      # .../data: the data directory is version-scoped underneath it so
+      # `pg_upgrade --link` can work across a major version bump.
+      - postgres-data:/var/lib/postgresql
+      # Runs once, on an empty data directory only.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U restaurant -d restaurant"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    container_name: restaurant-redis
+    restart: unless-stopped
+    # appendonly keeps sessions across a restart of the stack.
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
+  redis-data:

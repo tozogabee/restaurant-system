@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+// Types shared by every service's API. Anything specific to one domain belongs
+// in that service's own package, not here.
+package restaurant.common.v1;
+
+// Money is an exact amount. Prices are never floats: a cent is the smallest
+// unit the system deals in, so amounts are stored and transported as integers.
+message Money {
+  // Minor units of the currency, e.g. 1250 is 12.50 EUR. May be negative for
+  // a refund or discount.
+  int64 amount_minor = 1;
+
+  // ISO 4217 currency code, e.g. "EUR", "HUF".
+  string currency = 2;
+}
+
+// PageRequest asks for one page of a list. Cursor paging is used throughout
+// rather than offsets, so inserts do not shift a client mid-scroll.
+message PageRequest {
+  // Maximum number of items to return. The service clamps it to its own limit.
+  int32 page_size = 1;
+
+  // Opaque cursor from a previous PageResponse. Empty asks for the first page.
+  string page_token = 2;
+}
+
+// PageResponse carries the cursor for the page after the one returned.
+message PageResponse {
+  // Cursor to pass as the next PageRequest.page_token. Empty means the caller
+  // has reached the end.
+  string next_page_token = 1;
+
+  // Total number of matching items, when the service can count them cheaply.
+  int64 total_size = 2;
+}
