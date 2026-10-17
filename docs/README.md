@@ -6,6 +6,7 @@ the code; what lives here is the reasoning that does not fit in a comment.
 | Path | What it holds |
 | --- | --- |
 | [`requirements/`](requirements/) | What the system has to do, for whom, and how well — with the gaps marked |
+| [`database/`](database/) | Schema design: the [fill-in template](database/schema-design-template.md) and the [theory](database/design-theory.md) behind it |
 | [`architecture/`](architecture/) | How the system is built and why — the design overview and the decision record |
 | [`preconception.md`](preconception.md) | The project's earliest thinking, and what it left undecided |
 
